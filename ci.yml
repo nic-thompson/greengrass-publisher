@@ -1,0 +1,100 @@
+# CI workflow for greengrass-publisher
+#
+# Two jobs: typecheck (mypy --strict) and test (pytest matrix over
+# Python 3.11 and 3.12). Checks out telemetry-parser and
+# structured-logging-python as siblings since this package depends on
+# them via PYTHONPATH, not pip — matching how the other SignalForge
+# repos are structured (see pyproject.toml comment).
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Repo-relative paths, joined onto PYTHONPATH below
+  SIBLING_PYTHONPATH: ../telemetry-parser:../structured-logging-python
+
+jobs:
+  typecheck:
+    name: mypy --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: greengrass-publisher
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nic-thompson/telemetry-parser
+          path: telemetry-parser
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nic-thompson/structured-logging-python
+          path: structured-logging-python
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: greengrass-publisher
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: mypy
+        working-directory: greengrass-publisher
+        env:
+          PYTHONPATH: ${{ env.SIBLING_PYTHONPATH }}
+        run: mypy greengrass_publisher
+
+  test:
+    name: pytest (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: greengrass-publisher
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nic-thompson/telemetry-parser
+          path: telemetry-parser
+
+      - uses: actions/checkout@v4
+        with:
+          repository: nic-thompson/structured-logging-python
+          path: structured-logging-python
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: greengrass-publisher
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run tests
+        working-directory: greengrass-publisher
+        env:
+          PYTHONPATH: ${{ env.SIBLING_PYTHONPATH }}
+        run: pytest -v

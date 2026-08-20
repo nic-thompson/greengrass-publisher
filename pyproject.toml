@@ -1,0 +1,30 @@
+[project]
+name = "greengrass-publisher"
+version = "0.1.0"
+description = "Publishes telemetry-parser events to AWS IoT Core over Greengrass IPC"
+requires-python = ">=3.11"
+authors = [
+    { name = "Nicolas" }
+]
+dependencies = []
+# Matches telemetry-parser's own convention (dependencies = []) — these
+# repos aren't published to PyPI, so cross-repo imports are resolved via
+# PYTHONPATH in dev/CI (see .github/workflows/ci.yml), not pip package
+# references. Both telemetry-parser and structured-logging-python must
+# be present on PYTHONPATH for this package's imports to resolve.
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "mypy>=1.10",
+]
+# The real awsiot Greengrass IPC SDK is only installable on a
+# Greengrass device or its local simulator — not a normal dev/CI
+# environment — so it's kept out of both dependencies and dev,
+# and build_default_ipc_client() imports it lazily at call time.
+# Install manually where you have that environment:
+#   pip install awsiotsdk
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
