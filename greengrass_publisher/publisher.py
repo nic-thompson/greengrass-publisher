@@ -17,7 +17,7 @@ Design decisions (see docs/design-notes.md for the fuller rationale):
   a wildcard (`edge/+/telemetry`) and route every store's traffic
   through one rule, rather than needing per-store configuration.
 - Logs via structured_logging.StructuredLogger, matching every other
-  service on the platform, with each log line carrying the originating
+  service in SignalForge, with each log line carrying the originating
   event's trace_id — NOT stdlib logging. Requires the caller to have
   already run:
 

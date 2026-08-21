@@ -5,7 +5,7 @@ Core over the Greengrass Core IPC daemon — the link between the edge
 SIP listener and SignalForge's ingestion pipeline (EventBridge → SQS →
 Lambda → detection/dashboards/dataset export).
 
-Part of the SignalForge platform, alongside `event-schema-contracts`,
+Part of SignalForge, alongside `event-schema-contracts`,
 `structured-logging-python`, `telemetry-parser`, `aws-event-pipeline-infra`,
 and `signal-forge` itself.
 
@@ -15,7 +15,7 @@ Transport is a distinct concern from parsing, with an independent
 release cadence (Greengrass/awsiot SDK changes have nothing to do with
 parsing logic) and — matching the precedent already set by
 `structured-logging-python` — small, focused, reusable components in
-this platform get their own repo rather than living inside a larger
+SignalForge get their own repo rather than living inside a larger
 one.
 
 ## Install
