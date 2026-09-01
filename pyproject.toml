@@ -6,12 +6,21 @@ requires-python = ">=3.11"
 authors = [
     { name = "Nicolas" }
 ]
-dependencies = []
-# Matches telemetry-parser's own convention (dependencies = []) — these
-# repos aren't published to PyPI, so cross-repo imports are resolved via
-# PYTHONPATH in dev/CI (see .github/workflows/ci.yml), not pip package
-# references. Both telemetry-parser and structured-logging-python must
-# be present on PYTHONPATH for this package's imports to resolve.
+dependencies = [
+    "event-schema-contracts @ git+https://github.com/nic-thompson/event-schema-contracts@v0.8.1",
+    "structured-logging-python @ git+https://github.com/nic-thompson/structured-logging-python@main",
+]
+# Declared rather than resolved via PYTHONPATH. Both repositories are
+# public, so pip can fetch them without credentials, and a declared
+# dependency states which version this package was built against —
+# a PYTHONPATH entry states nothing and silently picks up whatever
+# happens to be checked out beside it.
+#
+# telemetry-parser is deliberately absent. This package consumes the
+# events the parser emits, but those are event-schema-contracts types;
+# it imports nothing from telemetry-parser itself. Depending on a
+# package for a type it does not own would make the coupling look
+# tighter than it is.
 
 [project.optional-dependencies]
 dev = [
@@ -28,3 +37,16 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[[tool.mypy.overrides]]
+# The Greengrass IPC SDK is only installable on a Greengrass device or
+# its local simulator, so it is absent from both dependencies and dev and
+# imported lazily inside build_default_ipc_client(). mypy cannot resolve
+# what pip cannot install, and no stub package exists.
+#
+# Scoped to awsiot alone rather than set globally: a blanket
+# ignore_missing_imports would also silence a genuinely missing
+# dependency, which is the failure this repository has just spent a
+# morning recovering from.
+module = ["awsiot.*"]
+ignore_missing_imports = true
