@@ -1,5 +1,5 @@
 """
-Publishes StructuredEvent instances onto AWS IoT Core via the local
+Publishes validated telemetry events onto AWS IoT Core via the local
 Greengrass IPC daemon, as an `on_emit` callback for telemetry_parser's
 EventEmitter.
 
@@ -16,6 +16,12 @@ Design decisions (see docs/design-notes.md for the fuller rationale):
 - Topic includes store_id so a single IoT Core rule can subscribe with
   a wildcard (`edge/+/telemetry`) and route every store's traffic
   through one rule, rather than needing per-store configuration.
+- The store_id given here and the one inside each event both come from
+  the controller's provisioned configuration, so they should always
+  agree. `publish` checks that they do. If they disagree the controller
+  is misconfigured, and the failure is otherwise invisible: events land
+  on one store's topic while claiming to belong to another, and every
+  downstream consumer believes whichever it happens to read.
 - Logs via structured_logging.StructuredLogger, matching every other
   service in SignalForge, with each log line carrying the originating
   event's trace_id — NOT stdlib logging. Requires the caller to have
@@ -35,8 +41,10 @@ from __future__ import annotations
 import json
 from typing import Protocol
 
+from event_schema_contracts.telemetry.sip_registration_event import (
+    SipRegistrationEvent,
+)
 from structured_logging.core.logger import StructuredLogger
-from telemetry_parser.output.structured_event import StructuredEvent
 
 logger = StructuredLogger(__name__)
 
@@ -44,7 +52,18 @@ TOPIC_TEMPLATE = "edge/{store_id}/telemetry"
 
 
 class PublishError(Exception):
-    """Raised when a StructuredEvent could not be published to IoT Core."""
+    """Raised when an event could not be published to IoT Core."""
+
+
+class StoreMismatchError(Exception):
+    """
+    Raised when an event claims a different store from the one this
+    publisher was configured for.
+
+    Both values come from the same controller configuration, so a
+    mismatch is a wiring error rather than a data condition — worth
+    failing on rather than resolving silently in either direction.
+    """
 
 
 class GreengrassIPCClient(Protocol):
@@ -60,12 +79,18 @@ class GreengrassIPCClient(Protocol):
 
 class GreengrassEventPublisher:
     """
-    Publishes StructuredEvent instances to IoT Core over Greengrass IPC.
+    Publishes validated telemetry events to IoT Core over Greengrass IPC.
 
     Usage as telemetry_parser's EventEmitter callback:
 
         publisher = GreengrassEventPublisher(store_id="store-0042")
         emitter = EventEmitter(on_emit=publisher.publish)
+
+    Events are `SipRegistrationEvent` from `event-schema-contracts`. The
+    parser previously emitted a locally-defined `StructuredEvent`, which
+    was removed when it began constructing the schema library's types
+    directly — so the schema validates the parser's output at the point
+    it is produced rather than a consumer discovering a mismatch.
     """
 
     # MQTT QoS 1 — "at least once". See module docstring for rationale.
@@ -84,17 +109,23 @@ class GreengrassEventPublisher:
         self._ipc_client = ipc_client
         self._topic = topic_template.format(store_id=store_id)
 
-    def publish(self, event: StructuredEvent) -> None:
+    def publish(self, event: SipRegistrationEvent) -> None:
         """
-        Publish a single StructuredEvent. Matches the signature
-        EventEmitter's `on_emit` callback expects: callable(event) -> None.
+        Publish a single event. Matches the signature EventEmitter's
+        `on_emit` callback expects: callable(event) -> None.
 
         Raises PublishError on failure rather than swallowing it —
         the caller (the parser pipeline) decides whether a publish
         failure should halt processing, be retried, or be logged and
         skipped; this class doesn't make that policy decision.
         """
-        payload_bytes = json.dumps(event.to_json_safe()).encode("utf-8")
+        if event.payload.store_id != self._store_id:
+            raise StoreMismatchError(
+                f"event claims store {event.payload.store_id!r} but this "
+                f"publisher is configured for {self._store_id!r}"
+            )
+
+        payload_bytes = json.dumps(event.model_dump(mode="json")).encode("utf-8")
 
         try:
             self._ipc_client.publish_to_iot_core(
@@ -107,8 +138,8 @@ class GreengrassEventPublisher:
                 error_code="GREENGRASS_PUBLISH_FAILED",
                 message=f"Failed to publish event to {self._topic}",
                 event_type="publish.failed",
-                metadata={"event_id": event.event_id, "topic": self._topic},
-                trace_id=event.trace_id,
+                metadata={"event_id": str(event.event_id), "topic": self._topic},
+                trace_id=str(event.trace.trace_id),
                 exception_type=type(exc).__name__,
                 retryable=True,
             )
@@ -120,11 +151,11 @@ class GreengrassEventPublisher:
             "Published event to IoT Core",
             event_type="publish.succeeded",
             metadata={
-                "event_id": event.event_id,
-                "source_event_type": event.event_type,
+                "event_id": str(event.event_id),
+                "source_event_type": event.metadata.event_type,
                 "topic": self._topic,
             },
-            trace_id=event.trace_id,
+            trace_id=str(event.trace.trace_id),
         )
 
 
